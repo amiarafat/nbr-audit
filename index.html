@@ -3,38 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NBR Audit Checker 2023-24 | Enhanced</title>
-    <!-- Tailwind CSS -->
+    <title>NBR Audit Checker 2023-24 | Fixed AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap');
-        body { 
-            font-family: 'Hind Siliguri', sans-serif; 
-            overflow-x: hidden;
-            scroll-behavior: smooth;
-        }
+        body { font-family: 'Hind Siliguri', sans-serif; }
+        .glass-effect { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(16px); }
         .chat-scroll::-webkit-scrollbar { width: 4px; }
         .chat-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-        }
-        .fade-in { animation: fadeIn 0.6s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .card-hover:hover { transform: translateY(-5px); transition: all 0.3s ease; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
     <div id="root"></div>
 
-    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, getDoc, setDoc, updateDoc, increment, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -46,36 +31,23 @@
             projectId: "nbr-audit-checker",
             storageBucket: "nbr-audit-checker.firebasestorage.app",
             messagingSenderId: "150898490409",
-            appId: "1:150898490409:web:b2fb490143166ea6647038",
-            measurementId: "G-1JPWWN3P74"
+            appId: "1:150898490409:web:b2fb490143166ea6647038"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
-        const appId = 'nbr-audit-v1';
-
-        window.trackAnalytics = async (type) => {
-            if (!auth.currentUser) return;
-            const statsRef = doc(db, 'artifacts', appId, 'public', 'data', 'analytics', 'global_stats');
-            try {
-                const updateData = {};
-                updateData[type] = increment(1);
-                await updateDoc(statsRef, updateData);
-            } catch (e) {
-                try { await setDoc(statsRef, { visits: 1, searches: 0 }, { merge: true }); } catch(err) {}
-            }
-        };
 
         window.firebaseDB = db;
         window.firebaseAuth = auth;
-        window.appIdentifier = appId;
-        window.fbMethods = { doc, getDoc, onSnapshot, signInAnonymously, onAuthStateChanged };
+        window.fbMethods = { doc, getDoc, setDoc, updateDoc, increment, onSnapshot, signInAnonymously, onAuthStateChanged };
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
         
+        // --- CONFIGURATION ---
+        const MODEL_NAME = "gemini-1.5-flash"; // AI Studio-র সাধারণ মডেল
         const GITHUB_DATA_URL = "https://raw.githubusercontent.com/amiarafat/nbr-audit/refs/heads/main/audit_selection_2023_24.json";
 
         function App() {
@@ -84,356 +56,178 @@
             const [selectedResult, setSelectedResult] = useState(null);
             const [isSearching, setIsSearching] = useState(false);
             const [error, setError] = useState(null);
-            const [user, setUser] = useState(null);
-            const [liveStats, setLiveStats] = useState({ visits: 0, searches: 0 });
             const [aiKey, setAiKey] = useState("");
-            
             const [isChatOpen, setIsChatOpen] = useState(false);
             const [chatMessages, setChatMessages] = useState([]);
             const [userInput, setUserInput] = useState('');
             const [isAiTyping, setIsAiTyping] = useState(false);
             const chatEndRef = useRef(null);
 
-            // Scroll to bottom of chat
             useEffect(() => {
-                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }, [chatMessages, isAiTyping]);
-
-            // Firebase Auth and Analytics
-            useEffect(() => {
-                const { firebaseAuth, fbMethods, trackAnalytics } = window;
+                const { firebaseAuth, firebaseDB, fbMethods } = window;
                 if (!firebaseAuth) return;
-                fbMethods.signInAnonymously(firebaseAuth);
-                const unsubscribe = fbMethods.onAuthStateChanged(firebaseAuth, (u) => {
-                    setUser(u);
-                    if (u && !sessionStorage.getItem('init_v')) {
-                        trackAnalytics('visits');
-                        sessionStorage.setItem('init_v', '1');
-                    }
+
+                fbMethods.signInAnonymously(firebaseAuth).then(() => {
+                    const keyDocRef = fbMethods.doc(firebaseDB, 'artifacts', 'nbr-audit-v1', 'public', 'data', 'api_keys', 'gemini');
+                    fbMethods.getDoc(keyDocRef).then(snap => {
+                        if (snap.exists()) setAiKey(snap.data().key);
+                    });
                 });
-                return () => unsubscribe();
-            }, []);
 
-            // Real-time Stats and AI Key Retrieval
-            useEffect(() => {
-                if (!user || !window.firebaseDB) return;
-                const { firebaseDB, appIdentifier, fbMethods } = window;
-                
-                // Live Stats Listener
-                const statsRef = fbMethods.doc(firebaseDB, 'artifacts', appIdentifier, 'public', 'data', 'analytics', 'global_stats');
-                const unsubStats = fbMethods.onSnapshot(statsRef, (doc) => doc.exists() && setLiveStats(doc.data()));
-
-                // Fetch AI Key from Firestore
-                const fetchAiKey = async () => {
-                    const keyDocRef = fbMethods.doc(firebaseDB, 'artifacts', appIdentifier, 'public', 'data', 'api_keys', 'gemini');
-                    try {
-                        const keySnap = await fbMethods.getDoc(keyDocRef);
-                        if (keySnap.exists()) {
-                            setAiKey(keySnap.data().key);
-                        }
-                    } catch (e) { console.error("Error fetching AI key:", e); }
-                };
-                fetchAiKey();
-
-                return () => unsubStats();
-            }, [user]);
-
-            // Load Audit Data
-            useEffect(() => {
                 fetch(GITHUB_DATA_URL)
                     .then(res => res.json())
                     .then(data => {
                         const lookup = new Map();
-                        data.entries.forEach(e => e.tin && lookup.set(String(e.tin).trim(), e));
+                        data.entries.forEach(e => lookup.set(String(e.tin).trim(), e));
                         setAuditMap(lookup);
                         setTimeout(() => lucide.createIcons(), 100);
-                    })
-                    .catch(() => setError("ডাটা লোড করা সম্ভব হয়নি।"));
+                    });
             }, []);
+
+            useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages, isAiTyping]);
 
             const handleSearch = () => {
                 const tin = searchTerm.replace(/\D/g, '').trim();
-                if (tin.length !== 12) { setError("সঠিক ১২ ডিজিটের টিআইএন দিন।"); return; }
+                if (tin.length !== 12) { setError("সঠিক ১২ ডিজিটের TIN দিন।"); return; }
                 setIsSearching(true);
                 setError(null);
-                setSelectedResult(null);
-                window.trackAnalytics('searches');
-                
                 setTimeout(() => {
                     const result = auditMap?.get(tin);
-                    if (result) {
-                        setSelectedResult(result);
-                    } else {
-                        setError("এই টিআইএন নাম্বারটি তালিকায় পাওয়া যায়নি।");
-                    }
+                    if (result) setSelectedResult(result);
+                    else setError("এই TIN নাম্বারটি তালিকায় নেই।");
                     setIsSearching(false);
                     setTimeout(() => lucide.createIcons(), 50);
                 }, 600);
             };
 
             const handleAiChat = async () => {
-                if (!userInput.trim() || !aiKey) {
-                    if (!aiKey) setChatMessages(prev => [...prev, { role: 'assistant', text: "দুঃখিত, এআই সার্ভিস কনফিগার করা নেই।" }]);
-                    return;
-                }
+                if (!userInput.trim() || !aiKey) return;
                 const msg = userInput;
                 setUserInput('');
                 setChatMessages(prev => [...prev, { role: 'user', text: msg }]);
                 setIsAiTyping(true);
 
-                // Helper for exponential backoff
-                const fetchWithRetry = async (url, options, retries = 5, backoff = 1000) => {
-                    try {
-                        const response = await fetch(url, options);
-                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                        return await response.json();
-                    } catch (error) {
-                        if (retries <= 0) throw error;
-                        await new Promise(resolve => setTimeout(resolve, backoff));
-                        return fetchWithRetry(url, options, retries - 1, backoff * 2);
+                // Exponential Backoff Fetch
+                const fetchWithRetry = async (url, options, retries = 3) => {
+                    for (let i = 0; i < retries; i++) {
+                        try {
+                            const res = await fetch(url, options);
+                            const json = await res.json();
+                            if (res.ok) return json;
+                            if (json.error?.message?.includes("not found")) throw new Error("MODEL_NOT_FOUND");
+                        } catch (e) {
+                            if (i === retries - 1) throw e;
+                            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+                        }
                     }
                 };
 
                 try {
-                    // Updated model to gemini-1.5-flash
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiKey}`;
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${aiKey}`;
                     const data = await fetchWithRetry(url, {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: msg }] }],
-                            systemInstruction: { parts: [{ text: "আপনি একজন এনবিআর ট্যাক্স বিশেষজ্ঞ। সর্বদা বাংলায় উত্তর দিন এবং ব্যবহারকারীকে অডিট সংক্রান্ত আইনি পরামর্শ প্রদান করুন।" }] }
+                            systemInstruction: { parts: [{ text: "আপনি একজন এনবিআর ট্যাক্স বিশেষজ্ঞ। বাংলায় উত্তর দিন।" }] }
                         })
                     });
-                    
-                    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "দুঃখিত, কোনো উত্তর পাওয়া যায়নি।";
-                    setChatMessages(prev => [...prev, { role: 'assistant', text: aiResponse }]);
+
+                    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "দুঃখিত, কোনো উত্তর পাওয়া যায়নি।";
+                    setChatMessages(prev => [...prev, { role: 'assistant', text: reply }]);
                 } catch (e) {
-                    console.error("AI Chat Error:", e);
-                    setChatMessages(prev => [...prev, { role: 'assistant', text: "দুঃখিত, বর্তমানে এআই সেবাটি পাওয়া যাচ্ছে না। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।" }]);
+                    let errorMsg = "দুঃখিত, এআই সার্ভারে সমস্যা হচ্ছে।";
+                    if (e.message === "MODEL_NOT_FOUND") errorMsg = `ত্রুটি: ${MODEL_NAME} মডেলটি আপনার এপিআই কী-এর সাথে কাজ করছে না। আইটি অ্যাডমিনকে জানান।`;
+                    setChatMessages(prev => [...prev, { role: 'assistant', text: errorMsg }]);
                 } finally {
                     setIsAiTyping(false);
                 }
             };
 
             return (
-                <div className="min-h-screen bg-slate-50 text-slate-900">
-                    <div className="bg-slate-900 text-white py-2 px-6 text-[11px] font-bold tracking-widest flex justify-center items-center gap-4 uppercase">
-                        <span className="opacity-70">Official Portal:</span>
-                        <a href="https://nbr.gov.bd" target="_blank" className="text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1">
-                            nbr.gov.bd <i data-lucide="external-link" className="w-3 h-3"></i>
-                        </a>
-                    </div>
-
-                    <nav className="sticky top-0 z-50 glass-effect border-b border-slate-200/60 px-6 py-4">
-                        <div className="max-w-7xl mx-auto flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                                <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg">
-                                    <i data-lucide="layout-grid" className="w-6 h-6"></i>
-                                </div>
-                                <span className="text-xl font-black text-slate-800 tracking-tight">NBR <span className="text-emerald-600">AuditHub</span></span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <div className="hidden sm:flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
-                                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                                    <span className="text-[10px] font-bold text-emerald-700 uppercase">Live Database</span>
-                                </div>
-                            </div>
+                <div className="min-h-screen pb-20">
+                    <nav className="glass-effect sticky top-0 z-50 border-b p-4 flex justify-between items-center px-8">
+                        <div className="flex items-center gap-2 font-black text-xl">
+                            <div className="bg-emerald-600 text-white p-2 rounded-lg"><i data-lucide="shield-check"></i></div>
+                            NBR AUDIT <span className="text-emerald-600">CHECKER</span>
                         </div>
                     </nav>
 
-                    <header className="pt-20 pb-12 px-6 text-center max-w-4xl mx-auto fade-in">
-                        <h1 className="text-5xl md:text-7xl font-black text-slate-900 mb-6 tracking-tighter leading-tight">
-                            আপনার ট্যাক্স ফাইল কি <br/> <span className="text-emerald-600 underline decoration-slate-200">অডিটে পড়েছে?</span>
-                        </h1>
-                        <p className="text-slate-500 font-medium text-lg max-w-2xl mx-auto">২০২৩-২৪ অর্থ বছরের জন্য এনবিআর কর্তৃক নির্বাচিত অডিট তালিকা থেকে আপনার টিআইএন যাচাই করুন সহজেই।</p>
-                    </header>
-
-                    <main className="max-w-6xl mx-auto px-6 pb-24">
-                        <div className="max-w-3xl mx-auto mb-20 fade-in" style={{animationDelay: '0.1s'}}>
-                            <div className="bg-white p-3 rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col md:flex-row items-center gap-2">
-                                <div className="flex-1 flex items-center w-full px-6 py-2">
-                                    <i data-lucide="search" className="w-6 h-6 text-slate-400 mr-4"></i>
-                                    <input 
-                                        type="text" 
-                                        placeholder="আপনার ১২ ডিজিটের TIN দিন..."
-                                        className="w-full py-4 text-xl outline-none font-mono font-black text-slate-800 bg-transparent placeholder:font-sans placeholder:font-medium"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                                    />
-                                </div>
-                                <button onClick={handleSearch} className="w-full md:w-auto bg-emerald-600 text-white font-black px-10 py-5 rounded-[1.8rem] hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-200 active:scale-95">
-                                    {isSearching ? "যাচাই হচ্ছে..." : "যাচাই করুন"}
-                                </button>
-                            </div>
-                            {error && <div className="mt-4 bg-red-50 text-red-600 p-4 rounded-2xl text-center font-bold text-sm border border-red-100 animate-pulse">{error}</div>}
+                    <div className="max-w-3xl mx-auto mt-20 px-6 text-center">
+                        <h1 className="text-4xl font-black mb-4">আপনার TIN যাচাই করুন</h1>
+                        <div className="bg-white p-2 rounded-full shadow-xl border flex items-center mb-8">
+                            <input 
+                                className="flex-1 px-6 py-4 outline-none font-mono text-lg" 
+                                placeholder="১২ ডিজিটের TIN লিখুন..." 
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
+                            <button onClick={handleSearch} className="bg-emerald-600 text-white px-8 py-4 rounded-full font-bold hover:bg-emerald-700 transition-all">
+                                {isSearching ? "চেক করা হচ্ছে..." : "যাচাই করুন"}
+                            </button>
                         </div>
+                        {error && <p className="text-red-500 font-bold bg-red-50 p-3 rounded-xl">{error}</p>}
 
                         {selectedResult && (
-                            <div className="max-w-4xl mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 mb-20 fade-in">
-                                <div className="bg-red-600 p-10 text-white text-center relative overflow-hidden">
-                                    <div className="absolute top-0 left-0 w-full h-full opacity-10 flex justify-around items-center">
-                                        <i data-lucide="alert-triangle" className="w-20 h-20"></i>
-                                        <i data-lucide="alert-triangle" className="w-40 h-40"></i>
-                                        <i data-lucide="alert-triangle" className="w-20 h-20"></i>
-                                    </div>
-                                    <h2 className="text-3xl font-black mb-2 relative z-10">সতর্কবার্তা: অডিট নির্বাচিত!</h2>
-                                    <p className="text-red-100 font-bold relative z-10">আপনার টিআইএন নাম্বারটি ২০২৩-২৪ অডিট তালিকার অন্তর্ভুক্ত।</p>
+                            <div className="bg-white border-2 border-red-500 rounded-[2rem] p-8 mt-10 shadow-2xl text-left animate-bounce-short">
+                                <div className="flex items-center gap-4 text-red-600 mb-4">
+                                    <i data-lucide="alert-circle" className="w-10 h-10"></i>
+                                    <h2 className="text-2xl font-black">অডিট সিলেকশন কনফার্মড!</h2>
                                 </div>
-                                <div className="p-10 grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <div className="bg-slate-50 p-8 rounded-3xl border border-slate-100 text-center card-hover">
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">TIN Number</span>
-                                        <p className="text-3xl font-mono font-black text-slate-900">{selectedResult.tin}</p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-slate-50 p-4 rounded-2xl">
+                                        <p className="text-xs text-slate-400 font-bold uppercase">TIN</p>
+                                        <p className="text-xl font-mono font-bold">{selectedResult.tin}</p>
                                     </div>
-                                    <div className="bg-slate-50 p-8 rounded-3xl border border-slate-100 text-center card-hover">
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Audit Serial</span>
-                                        <p className="text-3xl font-mono font-black text-slate-900">#{selectedResult.serial}</p>
+                                    <div className="bg-slate-50 p-4 rounded-2xl">
+                                        <p className="text-xs text-slate-400 font-bold uppercase">Serial</p>
+                                        <p className="text-xl font-mono font-bold">#{selectedResult.serial}</p>
                                     </div>
-                                    <div className="md:col-span-2 bg-emerald-50 p-8 rounded-3xl border border-emerald-100 flex flex-col md:flex-row justify-between items-center gap-4 card-hover">
-                                        <div className="text-center md:text-left">
-                                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block mb-1">Tax Zone Details</span>
-                                            <p className="text-2xl font-black text-slate-800">{selectedResult.zone}</p>
-                                        </div>
-                                        <button onClick={() => setIsChatOpen(true)} className="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2">
-                                            <i data-lucide="sparkles" className="w-5 h-5"></i> কি করতে হবে?
-                                        </button>
+                                    <div className="col-span-2 bg-emerald-50 p-4 rounded-2xl">
+                                        <p className="text-xs text-emerald-600 font-bold uppercase">Tax Zone</p>
+                                        <p className="text-lg font-bold">{selectedResult.zone}</p>
                                     </div>
                                 </div>
                             </div>
                         )}
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-20 fade-in" style={{animationDelay: '0.2s'}}>
-                            {[
-                                { icon: 'users', label: 'মোট ভিজিটর', val: (liveStats.visits || 0).toLocaleString(), color: 'emerald' },
-                                { icon: 'search', label: 'মোট অনুসন্ধান', val: (liveStats.searches || 0).toLocaleString(), color: 'blue' },
-                                { icon: 'database', label: 'ডাটাবেস সাইজ', val: auditMap ? auditMap.size.toLocaleString() : 'Loading...', color: 'purple' },
-                                { icon: 'calendar', label: 'অর্থ বছর', val: '২০২৩-২৪', color: 'orange' }
-                            ].map((s, i) => (
-                                <div key={i} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm text-center card-hover">
-                                    <div className={`w-12 h-12 bg-${s.color}-50 text-${s.color}-600 rounded-2xl flex items-center justify-center mb-4 mx-auto`}><i data-lucide={s.icon} className="w-6 h-6"></i></div>
-                                    <p className="text-3xl font-black text-slate-800">{s.val}</p>
-                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{s.label}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-20 fade-in" style={{animationDelay: '0.3s'}}>
-                            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
-                                <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="refresh-ccw" className="w-7 h-7"></i></div>
-                                <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">অডিট সিলেকশন প্রসেস</h3>
-                                <p className="text-slate-500 text-sm leading-relaxed mb-6 flex-grow">এনবিআর সাধারণত দুইভাবে অডিট নির্বাচন করে: **সিস্টেম ভিত্তিক র‍্যান্ডম সিলেকশন** এবং **প্যারামিটার ভিত্তিক সিলেকশন**। আয়ের তুলনায় খরচ বেশি দেখানো হলে বা বড় রিফান্ড ক্লেইম করলে অডিটের সম্ভাবনা বাড়ে।</p>
-                                <div className="pt-4 border-t border-slate-50 flex items-center gap-2 text-emerald-600 font-black text-xs uppercase">
-                                    <i data-lucide="check-circle" className="w-4 h-4"></i> স্বচ্ছ প্রক্রিয়া
-                                </div>
-                            </div>
-
-                            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
-                                <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="file-text" className="w-7 h-7"></i></div>
-                                <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">প্রয়োজনীয় নথিপত্র</h3>
-                                <p className="text-slate-500 text-sm leading-relaxed mb-6 flex-grow">অডিট নোটিশ পেলে যে ফাইলগুলো প্রস্তুত রাখবেন:</p>
-                                <ul className="space-y-3 mb-6">
-                                    {['ব্যাংক স্টেটমেন্ট (পুরো বছর)', 'সম্পদ ক্রয়ের দলিল বা প্রমাণ', 'আয়ের উৎসের প্রমাণপত্র'].map((t, idx) => (
-                                        <li key={idx} className="flex items-center gap-2 text-sm font-bold text-slate-600 bg-slate-50 p-2 rounded-lg">
-                                            <i data-lucide="dot" className="w-5 h-5 text-rose-500"></i> {t}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-
-                            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
-                                <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="calculator" className="w-7 h-7"></i></div>
-                                <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">ট্যাক্স সেভিং টিপস</h3>
-                                <p className="text-slate-500 text-sm leading-relaxed mb-6 flex-grow">সঠিক বিনিয়োগের মাধ্যমে আপনি আপনার ট্যাক্স লায়াবিলিটি কমাতে পারেন। সরকারি সঞ্চয়পত্র, ডিপিএস এবং জীবন বীমা প্রিমিয়ামে বিনিয়োগ করলে সর্বোচ্চ কর রেয়াত পাওয়া যায়।</p>
-                                <button className="bg-slate-100 py-3 rounded-xl text-slate-700 font-black text-xs uppercase hover:bg-emerald-50 hover:text-emerald-700 transition-colors">রেয়াত ক্যালকুলেটর দেখুন</button>
-                            </div>
-
-                            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
-                                <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="clock" className="w-7 h-7"></i></div>
-                                <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">সময়সীমা ও জরিমানা</h3>
-                                <p className="text-slate-500 text-sm leading-relaxed mb-6 flex-grow">সাধারণত ৩০শে নভেম্বরের মধ্যে রিটার্ন জমা দেওয়া বাধ্যতামূলক। সময়মতো রিটার্ন না দিলে প্রতি মাসের জন্য ২% বিলম্ব মাসুল এবং মূল ট্যাক্সের ওপর জরিমানা হতে পারে।</p>
-                                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 text-[11px] font-bold text-amber-800 uppercase tracking-widest text-center">৩০শে নভেম্বর: ট্যাক্স ডে</div>
-                            </div>
-
-                            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
-                                <div className="w-14 h-14 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="map-pin" className="w-7 h-7"></i></div>
-                                <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">আপনার কর অঞ্চল খুঁজুন</h3>
-                                <p className="text-slate-500 text-sm leading-relaxed mb-6 flex-grow">সঠিক কর অঞ্চল বা সার্কেল নির্বাচন করা রিটার্ন জমা দেওয়ার প্রাথমিক ধাপ। আপনার বর্তমান কর্মস্থল বা স্থায়ী ঠিকানার ওপর ভিত্তি করে এটি নির্ধারিত হয়।</p>
-                                <a href="https://etaxnbr.gov.bd/" target="_blank" className="flex items-center justify-center gap-2 text-sky-600 font-black text-xs uppercase">ই-ট্যাক্স পোর্টালে যান <i data-lucide="chevron-right" className="w-4 h-4"></i></a>
-                            </div>
-
-                            <div className="bg-slate-900 p-10 rounded-[2.5rem] shadow-xl text-white card-hover flex flex-col h-full relative overflow-hidden">
-                                <div className="absolute -bottom-10 -right-10 opacity-10"><i data-lucide="users" className="w-40 h-40"></i></div>
-                                <h3 className="text-2xl font-black mb-4 tracking-tight relative z-10">পেশাদার সহায়তা নিন</h3>
-                                <p className="text-slate-400 text-sm leading-relaxed mb-6 flex-grow relative z-10">ট্যাক্স সংক্রান্ত জটিলতা এড়াতে অনুমোদিত ইনকাম ট্যাক্স প্র্যাকটিশনার (ITP) বা আইনজীবীর পরামর্শ নিন। আমাদের এআই চ্যাটবটও আপনাকে গাইড করতে পারে।</p>
-                                <button onClick={() => setIsChatOpen(true)} className="w-full bg-emerald-600 py-4 rounded-2xl text-white font-black hover:bg-emerald-500 transition-all relative z-10 shadow-lg shadow-emerald-900/40">আইটিপি গাইডেন্স চালু করুন</button>
-                            </div>
-                        </div>
-
-                        <footer className="mt-12 text-center pt-12 border-t border-slate-200">
-                            <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">স্বেচ্ছায় কর প্রদান করুন, দেশ গড়ায় অংশ নিন</p>
-                            <div className="flex justify-center gap-6 opacity-30">
-                                <div className="w-8 h-8 bg-slate-400 rounded-lg"></div>
-                                <div className="w-8 h-8 bg-slate-400 rounded-lg"></div>
-                                <div className="w-8 h-8 bg-slate-400 rounded-lg"></div>
-                            </div>
-                        </footer>
-                    </main>
+                    </div>
 
                     {/* Chat Widget */}
-                    <div className={`fixed bottom-8 right-8 z-[100] transition-all duration-500 ease-[cubic-bezier(0.19,1,0.22,1)] ${isChatOpen ? 'w-[calc(100vw-4rem)] md:w-[450px]' : 'w-16 h-16'}`}>
+                    <div className={`fixed bottom-6 right-6 z-[100] ${isChatOpen ? 'w-[380px]' : 'w-16 h-16'}`}>
                         {isChatOpen ? (
-                            <div className="bg-white w-full h-[650px] rounded-[3rem] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10">
-                                <div className="bg-slate-950 p-8 text-white flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg"><i data-lucide="bot" className="w-7 h-7"></i></div>
-                                        <div>
-                                            <h3 className="font-black text-lg">ট্যাক্স এআই এডভাইজার</h3>
-                                            <p className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">২৪/৭ অনলাইন সহায়তা</p>
-                                        </div>
+                            <div className="bg-white h-[550px] rounded-3xl shadow-2xl border flex flex-col overflow-hidden">
+                                <div className="bg-slate-900 p-5 text-white flex justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center"><i data-lucide="bot"></i></div>
+                                        <span className="font-bold">Tax Expert AI</span>
                                     </div>
-                                    <button onClick={() => setIsChatOpen(false)} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-all"><i data-lucide="x" className="w-6 h-6"></i></button>
+                                    <button onClick={() => setIsChatOpen(false)}><i data-lucide="x"></i></button>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-8 space-y-6 chat-scroll bg-slate-50/50">
-                                    {chatMessages.length === 0 && (
-                                        <div className="text-center py-20 opacity-40">
-                                            <i data-lucide="message-circle" className="w-16 h-16 mx-auto mb-4 text-slate-300"></i>
-                                            <p className="font-bold text-slate-400">আপনার প্রশ্নটি নিচে টাইপ করুন</p>
-                                        </div>
-                                    )}
-                                    {chatMessages.map((msg, idx) => (
-                                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} fade-in`}>
-                                            <div className={`max-w-[85%] p-5 rounded-[2rem] text-[15px] font-bold leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'}`}>
-                                                {msg.text}
+                                <div className="flex-1 overflow-y-auto p-4 space-y-4 chat-scroll">
+                                    {chatMessages.map((m, i) => (
+                                        <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${m.role === 'user' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                                                {m.text}
                                             </div>
                                         </div>
                                     ))}
-                                    {isAiTyping && <div className="flex justify-start"><div className="bg-white px-6 py-4 rounded-2xl border border-slate-100 flex gap-2"><span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce"></span><span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.2s]"></span><span className="w-2 h-2 bg-slate-300 rounded-full animate-bounce [animation-delay:0.4s]"></span></div></div>}
+                                    {isAiTyping && <div className="text-xs text-slate-400 animate-pulse">AI উত্তর লিখছে...</div>}
                                     <div ref={chatEndRef}></div>
                                 </div>
-                                <div className="p-8 bg-white border-t border-slate-100">
-                                    <div className="flex items-center gap-3 bg-slate-100 rounded-3xl px-6 py-2 focus-within:ring-4 ring-emerald-500/10 transition-all">
-                                        <input 
-                                            className="flex-1 bg-transparent border-none outline-none py-4 text-sm font-bold placeholder:text-slate-400" 
-                                            placeholder="যেমন: অডিট হলে জরিমানা কত?" 
-                                            value={userInput} 
-                                            onChange={(e) => setUserInput(e.target.value)} 
-                                            onKeyDown={(e) => e.key === 'Enter' && !isAiTyping && handleAiChat()} 
-                                        />
-                                        <button 
-                                            onClick={handleAiChat} 
-                                            disabled={isAiTyping || !userInput.trim()}
-                                            className="bg-slate-950 text-white p-3 rounded-2xl hover:bg-emerald-600 disabled:opacity-50 transition-all shadow-lg"
-                                        >
-                                            <i data-lucide="send" className="w-5 h-5"></i>
-                                        </button>
-                                    </div>
+                                <div className="p-4 border-t flex gap-2">
+                                    <input 
+                                        className="flex-1 bg-slate-100 rounded-xl px-4 py-2 outline-none text-sm" 
+                                        placeholder="প্রশ্ন করুন..." 
+                                        value={userInput}
+                                        onChange={e => setUserInput(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleAiChat()}
+                                    />
+                                    <button onClick={handleAiChat} className="bg-emerald-600 text-white p-2 rounded-xl"><i data-lucide="send"></i></button>
                                 </div>
                             </div>
                         ) : (
-                            <button onClick={() => setIsChatOpen(true)} className="w-20 h-20 bg-slate-950 rounded-[2rem] shadow-2xl flex items-center justify-center text-white hover:scale-110 hover:bg-emerald-600 transition-all group overflow-hidden">
-                                <div className="absolute inset-0 bg-gradient-to-tr from-emerald-600/0 to-emerald-600/0 group-hover:from-emerald-600/50 transition-all"></div>
-                                <i data-lucide="message-circle" className="w-10 h-10 relative z-10"></i>
+                            <button onClick={() => setIsChatOpen(true)} className="w-full h-full bg-slate-900 text-white rounded-full flex items-center justify-center shadow-2xl hover:scale-110 transition-all">
+                                <i data-lucide="message-square"></i>
                             </button>
                         )}
                     </div>

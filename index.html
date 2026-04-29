@@ -15,7 +15,6 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Hind Siliguri', sans-serif; }
-        .animate-pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
         .chat-scroll::-webkit-scrollbar { width: 4px; }
         .chat-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
     </style>
@@ -28,7 +27,7 @@
         
         // Configuration
         const GITHUB_DATA_URL = "https://raw.githubusercontent.com/amiarafat/nbr-audit/refs/heads/main/audit_selection_2023_24.json";
-        const apiKey = ""; // Gemini API Key provided at runtime
+        const API_KEY = "AIzaSyBpCHIzi5eop3Ippcw0s1Ui80x5F63TneQ"; // Your provided key
 
         function App() {
             const [auditMap, setAuditMap] = useState(null);
@@ -39,7 +38,7 @@
             const [isLoadingData, setIsLoadingData] = useState(true);
             const [dataSource, setDataSource] = useState('Initializing...');
             
-            // AI State
+            // AI Chat State
             const [isChatOpen, setIsChatOpen] = useState(false);
             const [chatMessages, setChatMessages] = useState([]);
             const [userInput, setUserInput] = useState('');
@@ -67,7 +66,7 @@
                         }
                     } catch (err) {
                         setDataSource('Error loading data');
-                        setError("ডাটাবেস লোড করতে সমস্যা হয়েছে। আপনার গিটহাব লিঙ্কটি চেক করুন।");
+                        setError("ডাটাবেস লোড করতে সমস্যা হয়েছে।");
                     } finally {
                         setIsLoadingData(false);
                         setTimeout(() => lucide.createIcons(), 100);
@@ -83,14 +82,14 @@
             }, [chatMessages, isAiTyping]);
 
             const callGemini = async (prompt, systemContext = "") => {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
                 
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
                     systemInstruction: { parts: [{ text: `You are a helpful NBR (National Board of Revenue) Tax Assistant. Use Bengali for communication. ${systemContext}` }] }
                 };
 
-                let retries = 5;
+                let retries = 3;
                 let delay = 1000;
 
                 while (retries > 0) {
@@ -100,6 +99,7 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
+                        if (!response.ok) throw new Error("API Request Failed");
                         const data = await response.json();
                         return data.candidates?.[0]?.content?.parts?.[0]?.text;
                     } catch (e) {
@@ -152,10 +152,6 @@
                         }]);
                     } else {
                         setError("এই টিআইএন নাম্বারটি ২০২৩-২৪ অডিট তালিকায় পাওয়া যায়নি।");
-                        setChatMessages([{ 
-                            role: 'assistant', 
-                            text: `আপনার টিআইএন তালিকায় নেই। তবে নিয়মিত ট্যাক্স কমপ্লায়েন্স নিয়ে কোনো প্রশ্ন থাকলে আমাকে করতে পারেন। ✨` 
-                        }]);
                     }
                     setIsSearching(false);
                     setTimeout(() => lucide.createIcons(), 50);
@@ -164,7 +160,7 @@
 
             return (
                 <div className="min-h-screen pb-20 relative overflow-x-hidden">
-                    {/* Visual Background Elements */}
+                    {/* Background */}
                     <div className="fixed inset-0 pointer-events-none -z-10">
                         <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-emerald-100/40 rounded-full blur-[120px]"></div>
                         <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-100/40 rounded-full blur-[120px]"></div>
@@ -182,7 +178,7 @@
                             অডিট <span className="text-emerald-600">চেকার</span>
                         </h1>
                         <p className="text-slate-500 text-lg md:text-xl font-medium max-w-2xl mx-auto leading-relaxed">
-                            ২০২৩-২৪ অর্থ-বছরের অডিট নির্বাচনের তালিকা অনুসন্ধান করুন। আপনার টিআইএন দিয়ে দ্রুত যাচাই সম্পন্ন করুন।
+                            ২০২৩-২৪ অর্থ-বছরের অডিট নির্বাচনের তালিকা অনুসন্ধান করুন।
                         </p>
                     </header>
 
@@ -194,8 +190,8 @@
                                 </div>
                                 <input 
                                     type="text" 
-                                    placeholder="১২ ডিজিটের টিআইএন (TIN) দিন..."
-                                    className="w-full py-5 text-2xl outline-none font-mono font-black text-slate-800 placeholder:font-sans placeholder:text-slate-200"
+                                    placeholder="১২ ডিজিটের টিআইএন দিন..."
+                                    className="w-full py-5 text-2xl outline-none font-mono font-black text-slate-800"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && performSearch()}
@@ -204,17 +200,14 @@
                             <button 
                                 onClick={performSearch}
                                 disabled={isLoadingData || isSearching}
-                                className="w-full md:w-auto bg-slate-950 hover:bg-emerald-600 text-white font-black px-12 py-5 rounded-[2rem] transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                className="w-full md:w-auto bg-slate-950 hover:bg-emerald-600 text-white font-black px-12 py-5 rounded-[2rem] transition-all"
                             >
                                 {isSearching ? "খোঁজা হচ্ছে..." : "সার্চ করুন"}
                             </button>
                         </div>
 
                         {error && (
-                            <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl text-center animate-in fade-in slide-in-from-top-4">
-                                <div className="mb-4 inline-flex p-4 bg-slate-50 rounded-full">
-                                    <i data-lucide="info" className="w-8 h-8 text-slate-400"></i>
-                                </div>
+                            <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl text-center animate-in fade-in zoom-in-95">
                                 <p className="text-slate-500 font-bold text-xl leading-relaxed">{error}</p>
                             </div>
                         )}
@@ -232,12 +225,11 @@
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-[10px] font-black uppercase opacity-60">Serial No</p>
                                         <p className="text-4xl font-mono font-black leading-none">{selectedResult.serial}</p>
                                     </div>
                                 </div>
                                 <div className="p-14 space-y-12">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10 text-center md:text-left">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                                         <div>
                                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">TIN Number</span>
                                             <p className="text-5xl font-mono font-black text-slate-900 tracking-tighter">{selectedResult.tin}</p>
@@ -249,7 +241,7 @@
                                     </div>
                                     <div className="bg-slate-50 p-10 rounded-[3rem] border border-slate-100 text-center">
                                         <p className="text-slate-600 font-bold text-lg mb-4">
-                                            অডিট নোটিশের প্রস্তুতির জন্য আপনার আয়কর নথিপত্র গুছিয়ে রাখুন।
+                                            অডিট নোটিশের প্রস্তুতির জন্য এআই সহকারীর সাহায্য নিন।
                                         </p>
                                         <button 
                                             onClick={() => setIsChatOpen(true)}
@@ -264,7 +256,7 @@
                         )}
                     </main>
 
-                    {/* Gemini AI Chat Widget */}
+                    {/* Chat Widget */}
                     <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end transition-all duration-500 ${isChatOpen ? 'w-full max-w-md px-6' : 'w-16'}`}>
                         {isChatOpen ? (
                             <div className="bg-white w-full h-[500px] rounded-[2.5rem] shadow-2xl border border-slate-200 flex flex-col overflow-hidden mb-4 animate-in slide-in-from-bottom-10">
@@ -275,16 +267,11 @@
                                         </div>
                                         <h3 className="font-black text-lg">ট্যাক্স এআই সহকারী</h3>
                                     </div>
-                                    <button onClick={() => setIsChatOpen(false)} className="hover:rotate-90 transition-transform">
+                                    <button onClick={() => setIsChatOpen(false)}>
                                         <i data-lucide="x" className="w-6 h-6 text-slate-400"></i>
                                     </button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-6 space-y-4 chat-scroll">
-                                    {chatMessages.length === 0 && (
-                                        <div className="text-center text-slate-400 py-10">
-                                            <p className="text-sm font-medium">আপনার অডিট বা ট্যাক্স বিষয়ক যেকোনো প্রশ্ন করতে পারেন। ✨</p>
-                                        </div>
-                                    )}
                                     {chatMessages.map((msg, idx) => (
                                         <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                             <div className={`max-w-[85%] p-4 rounded-3xl text-sm font-medium leading-relaxed ${
@@ -338,12 +325,9 @@
                         )}
                     </div>
 
-                    <footer className="mt-24 text-center px-6">
-                        <p className="text-slate-300 text-[10px] font-black uppercase tracking-[0.4em] mb-4">
-                            Official Data Source: NBR Publication
-                        </p>
-                        <p className="text-slate-200 text-[11px] max-w-md mx-auto leading-relaxed">
-                            তথ্যসূত্র: জাতীয় রাজস্ব বোর্ড (NBR) এর অডিট সিলেকশন গেজেট ২০২৩-২৪। এটি একটি ব্যক্তিগত উদ্যোগ, তথ্যের চূড়ান্ত সত্যতা যাচাইয়ে অফিসিয়াল পোর্টালে যোগাযোগ করুন।
+                    <footer className="mt-24 text-center px-6 opacity-30">
+                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">
+                            Source: NBR Audit List 2023-24
                         </p>
                     </footer>
                 </div>

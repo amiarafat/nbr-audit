@@ -94,6 +94,11 @@
             const [isAiTyping, setIsAiTyping] = useState(false);
             const chatEndRef = useRef(null);
 
+            // Scroll to bottom of chat
+            useEffect(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [chatMessages, isAiTyping]);
+
             // Firebase Auth and Analytics
             useEffect(() => {
                 const { firebaseAuth, fbMethods, trackAnalytics } = window;
@@ -175,20 +180,37 @@
                 setUserInput('');
                 setChatMessages(prev => [...prev, { role: 'user', text: msg }]);
                 setIsAiTyping(true);
+
+                // Helper for exponential backoff
+                const fetchWithRetry = async (url, options, retries = 5, backoff = 1000) => {
+                    try {
+                        const response = await fetch(url, options);
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        return await response.json();
+                    } catch (error) {
+                        if (retries <= 0) throw error;
+                        await new Promise(resolve => setTimeout(resolve, backoff));
+                        return fetchWithRetry(url, options, retries - 1, backoff * 2);
+                    }
+                };
+
                 try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${aiKey}`;
-                    const res = await fetch(url, {
+                    // Updated model to gemini-1.5-flash
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiKey}`;
+                    const data = await fetchWithRetry(url, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: msg }] }],
-                            systemInstruction: { parts: [{ text: "You are an expert NBR Tax Consultant. Use Bengali for all advice." }] }
+                            systemInstruction: { parts: [{ text: "আপনি একজন এনবিআর ট্যাক্স বিশেষজ্ঞ। সর্বদা বাংলায় উত্তর দিন এবং ব্যবহারকারীকে অডিট সংক্রান্ত আইনি পরামর্শ প্রদান করুন।" }] }
                         })
                     });
-                    const data = await res.json();
-                    setChatMessages(prev => [...prev, { role: 'assistant', text: data.candidates[0].content.parts[0].text }]);
+                    
+                    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "দুঃখিত, কোনো উত্তর পাওয়া যায়নি।";
+                    setChatMessages(prev => [...prev, { role: 'assistant', text: aiResponse }]);
                 } catch (e) {
-                    setChatMessages(prev => [...prev, { role: 'assistant', text: "দুঃখিত, বর্তমানে এআই সেবাটি পাওয়া যাচ্ছে না।" }]);
+                    console.error("AI Chat Error:", e);
+                    setChatMessages(prev => [...prev, { role: 'assistant', text: "দুঃখিত, বর্তমানে এআই সেবাটি পাওয়া যাচ্ছে না। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।" }]);
                 } finally {
                     setIsAiTyping(false);
                 }

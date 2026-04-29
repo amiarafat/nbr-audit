@@ -47,7 +47,8 @@
         const { useState, useEffect, useRef } = React;
         
         // --- CONFIGURATION ---
-        const MODEL_NAME = "gemini-1.5-flash"; // AI Studio-র সাধারণ মডেল
+        // 'gemini-1.5-flash' is the most stable and widely available model for AI Studio keys
+        const MODEL_NAME = "gemini-1.5-flash"; 
         const GITHUB_DATA_URL = "https://raw.githubusercontent.com/amiarafat/nbr-audit/refs/heads/main/audit_selection_2023_24.json";
 
         function App() {
@@ -58,7 +59,9 @@
             const [error, setError] = useState(null);
             const [aiKey, setAiKey] = useState("");
             const [isChatOpen, setIsChatOpen] = useState(false);
-            const [chatMessages, setChatMessages] = useState([]);
+            const [chatMessages, setChatMessages] = useState([
+                { role: 'assistant', text: 'স্বাগতম! ট্যাক্স অডিট সংক্রান্ত যেকোনো প্রশ্ন আমাকে করতে পারেন।' }
+            ]);
             const [userInput, setUserInput] = useState('');
             const [isAiTyping, setIsAiTyping] = useState(false);
             const chatEndRef = useRef(null);
@@ -107,17 +110,22 @@
                 setChatMessages(prev => [...prev, { role: 'user', text: msg }]);
                 setIsAiTyping(true);
 
-                // Exponential Backoff Fetch
-                const fetchWithRetry = async (url, options, retries = 3) => {
+                // Exponential Backoff implementation to handle rate limits or glitches
+                const fetchWithRetry = async (url, options, retries = 5) => {
                     for (let i = 0; i < retries; i++) {
                         try {
                             const res = await fetch(url, options);
                             const json = await res.json();
                             if (res.ok) return json;
-                            if (json.error?.message?.includes("not found")) throw new Error("MODEL_NOT_FOUND");
+                            
+                            // If it's the model not found error, don't retry, just fail with specific info
+                            if (res.status === 404) throw new Error("MODEL_NOT_FOUND");
+                            
+                            // Otherwise, wait and retry
+                            await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
                         } catch (e) {
+                            if (e.message === "MODEL_NOT_FOUND") throw e;
                             if (i === retries - 1) throw e;
-                            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
                         }
                     }
                 };
@@ -136,8 +144,11 @@
                     const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "দুঃখিত, কোনো উত্তর পাওয়া যায়নি।";
                     setChatMessages(prev => [...prev, { role: 'assistant', text: reply }]);
                 } catch (e) {
-                    let errorMsg = "দুঃখিত, এআই সার্ভারে সমস্যা হচ্ছে।";
-                    if (e.message === "MODEL_NOT_FOUND") errorMsg = `ত্রুটি: ${MODEL_NAME} মডেলটি আপনার এপিআই কী-এর সাথে কাজ করছে না। আইটি অ্যাডমিনকে জানান।`;
+                    console.error("AI Error:", e);
+                    let errorMsg = "দুঃখিত, এআই সার্ভারে সংযোগ করা যাচ্ছে না।";
+                    if (e.message === "MODEL_NOT_FOUND") {
+                        errorMsg = `ভুল: '${MODEL_NAME}' মডেলটি পাওয়া যাচ্ছে না। আপনার এপিআই কী-এর জন্য অনুমোদিত মডেলের নাম সেট করুন।`;
+                    }
                     setChatMessages(prev => [...prev, { role: 'assistant', text: errorMsg }]);
                 } finally {
                     setIsAiTyping(false);
@@ -192,10 +203,9 @@
                         )}
                     </div>
 
-                    {/* Chat Widget */}
                     <div className={`fixed bottom-6 right-6 z-[100] ${isChatOpen ? 'w-[380px]' : 'w-16 h-16'}`}>
                         {isChatOpen ? (
-                            <div className="bg-white h-[550px] rounded-3xl shadow-2xl border flex flex-col overflow-hidden">
+                            <div className="bg-white h-[550px] rounded-3xl shadow-2xl border flex flex-col overflow-hidden animate-in slide-in-from-bottom-5">
                                 <div className="bg-slate-900 p-5 text-white flex justify-between">
                                     <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center"><i data-lucide="bot"></i></div>
@@ -206,23 +216,23 @@
                                 <div className="flex-1 overflow-y-auto p-4 space-y-4 chat-scroll">
                                     {chatMessages.map((m, i) => (
                                         <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${m.role === 'user' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                                            <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${m.role === 'user' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-800 shadow-sm'}`}>
                                                 {m.text}
                                             </div>
                                         </div>
                                     ))}
-                                    {isAiTyping && <div className="text-xs text-slate-400 animate-pulse">AI উত্তর লিখছে...</div>}
+                                    {isAiTyping && <div className="text-xs text-slate-400 animate-pulse px-2">এআই টাইপ করছে...</div>}
                                     <div ref={chatEndRef}></div>
                                 </div>
                                 <div className="p-4 border-t flex gap-2">
                                     <input 
                                         className="flex-1 bg-slate-100 rounded-xl px-4 py-2 outline-none text-sm" 
-                                        placeholder="প্রশ্ন করুন..." 
+                                        placeholder="আপনার প্রশ্নটি লিখুন..." 
                                         value={userInput}
                                         onChange={e => setUserInput(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleAiChat()}
                                     />
-                                    <button onClick={handleAiChat} className="bg-emerald-600 text-white p-2 rounded-xl"><i data-lucide="send"></i></button>
+                                    <button onClick={handleAiChat} className="bg-emerald-600 text-white p-2 rounded-xl active:scale-90 transition-transform"><i data-lucide="send"></i></button>
                                 </div>
                             </div>
                         ) : (

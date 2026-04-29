@@ -14,12 +14,20 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Hind Siliguri', sans-serif; }
+        body { 
+            font-family: 'Hind Siliguri', sans-serif; 
+            overflow-x: hidden;
+        }
         .chat-scroll::-webkit-scrollbar { width: 4px; }
-        .chat-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .chat-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
     </style>
 </head>
-<body class="bg-[#f8fafc]">
+<body class="bg-[#f0f4f8] text-slate-900">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -27,7 +35,7 @@
         
         // Configuration
         const GITHUB_DATA_URL = "https://raw.githubusercontent.com/amiarafat/nbr-audit/refs/heads/main/audit_selection_2023_24.json";
-        const API_KEY = "AIzaSyBpCHIzi5eop3Ippcw0s1Ui80x5F63TneQ"; // Your provided key
+        const API_KEY = "AIzaSyBpCHIzi5eop3Ippcw0s1Ui80x5F63TneQ"; 
 
         function App() {
             const [auditMap, setAuditMap] = useState(null);
@@ -36,7 +44,7 @@
             const [isSearching, setIsSearching] = useState(false);
             const [error, setError] = useState(null);
             const [isLoadingData, setIsLoadingData] = useState(true);
-            const [dataSource, setDataSource] = useState('Initializing...');
+            const [stats, setStats] = useState({ count: 0, date: "২০২৩-২৪" });
             
             // AI Chat State
             const [isChatOpen, setIsChatOpen] = useState(false);
@@ -61,12 +69,11 @@
                         const data = await response.json();
                         if (data && data.entries) {
                             indexData(data.entries);
-                            setDataSource(`Connected: ${data.entries.length.toLocaleString()} Records`);
+                            setStats({ count: data.entries.length, date: "২০২৩-২৪" });
                             setError(null);
                         }
                     } catch (err) {
-                        setDataSource('Error loading data');
-                        setError("ডাটাবেস লোড করতে সমস্যা হয়েছে।");
+                        setError("ডাটাবেস লোড করতে সমস্যা হয়েছে। ইন্টারনেট সংযোগ চেক করুন।");
                     } finally {
                         setIsLoadingData(false);
                         setTimeout(() => lucide.createIcons(), 100);
@@ -86,28 +93,19 @@
                 
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
-                    systemInstruction: { parts: [{ text: `You are a helpful NBR (National Board of Revenue) Tax Assistant. Use Bengali for communication. ${systemContext}` }] }
+                    systemInstruction: { parts: [{ text: `You are a helpful NBR (National Board of Revenue) Tax Assistant in Bangladesh. Use Bengali for communication. Help users understand audit procedures, documentation, and deadlines. Current context: ${systemContext}` }] }
                 };
 
-                let retries = 3;
-                let delay = 1000;
-
-                while (retries > 0) {
-                    try {
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        if (!response.ok) throw new Error("API Request Failed");
-                        const data = await response.json();
-                        return data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    } catch (e) {
-                        retries--;
-                        if (retries === 0) throw e;
-                        await new Promise(res => setTimeout(res, delay));
-                        delay *= 2;
-                    }
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text;
+                } catch (e) {
+                    throw e;
                 }
             };
 
@@ -120,13 +118,13 @@
 
                 try {
                     const context = selectedResult 
-                        ? `The user's TIN is ${selectedResult.tin} and they are selected for audit in ${selectedResult.zone}. Guide them on what to do next.`
-                        : "The user is checking if they are in the tax audit list.";
+                        ? `User's TIN: ${selectedResult.tin}, Zone: ${selectedResult.zone}, Serial: ${selectedResult.serial}. They are selected for audit.`
+                        : "User is not in the audit list but has tax questions.";
                     
                     const response = await callGemini(message, context);
                     setChatMessages(prev => [...prev, { role: 'assistant', text: response }]);
                 } catch (e) {
-                    setChatMessages(prev => [...prev, { role: 'assistant', text: "দুঃখিত, এআই সার্ভারে সংযোগ করা যাচ্ছে না।" }]);
+                    setChatMessages(prev => [...prev, { role: 'assistant', text: "দুঃখিত, বর্তমানে এআই সেবাটি পাওয়া যাচ্ছে না।" }]);
                 } finally {
                     setIsAiTyping(false);
                 }
@@ -135,7 +133,8 @@
             const performSearch = () => {
                 const cleanTin = searchTerm.replace(/\D/g, '').trim();
                 if (cleanTin.length !== 12) {
-                    setError("সঠিকভাবে ১২ ডিজিটের টিআইএন (TIN) প্রদান করুন।");
+                    setError("অনুগ্রহ করে আপনার সঠিক ১২ ডিজিটের টিআইএন (TIN) প্রদান করুন।");
+                    setSelectedResult(null);
                     return;
                 }
                 setIsSearching(true);
@@ -148,50 +147,60 @@
                         setSelectedResult(result);
                         setChatMessages([{ 
                             role: 'assistant', 
-                            text: `আসসালামু আলাইকুম। আপনার টিআইএন (${result.tin}) অডিট তালিকায় পাওয়া গেছে। আপনি কি জানতে চান এরপর আপনার করণীয় কী? ✨` 
+                            text: `আসসালামু আলাইকুম। আপনার টিআইএন (${result.tin}) অডিট তালিকায় পাওয়া গেছে। আতঙ্কিত হবেন না, আমি আপনাকে প্রয়োজনীয় প্রস্তুতি নিতে সাহায্য করতে পারি। আপনি কি জানতে চান এরপর কি করতে হবে? ✨` 
                         }]);
                     } else {
-                        setError("এই টিআইএন নাম্বারটি ২০২৩-২৪ অডিট তালিকায় পাওয়া যায়নি।");
+                        setError("অভিনন্দন! এই টিআইএন নাম্বারটি ২০২৩-২৪ অডিট তালিকায় পাওয়া যায়নি।");
                     }
                     setIsSearching(false);
                     setTimeout(() => lucide.createIcons(), 50);
-                }, 150);
+                }, 400);
             };
 
             return (
-                <div className="min-h-screen pb-20 relative overflow-x-hidden">
-                    {/* Background */}
-                    <div className="fixed inset-0 pointer-events-none -z-10">
-                        <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-emerald-100/40 rounded-full blur-[120px]"></div>
-                        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-100/40 rounded-full blur-[120px]"></div>
+                <div className="min-h-screen bg-[#f8fafc] text-slate-900 pb-20">
+                    {/* Animated Background Gradients */}
+                    <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+                        <div className="absolute -top-[10%] -right-[10%] w-[300px] md:w-[600px] h-[300px] md:h-[600px] bg-emerald-100/50 rounded-full blur-[100px]"></div>
+                        <div className="absolute -bottom-[10%] -left-[10%] w-[300px] md:w-[600px] h-[300px] md:h-[600px] bg-blue-100/50 rounded-full blur-[100px]"></div>
                     </div>
 
-                    <header className="pt-20 pb-12 px-6 text-center max-w-4xl mx-auto">
-                        <div className="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest mb-6 border border-emerald-200">
-                             <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                             </span>
-                             {isLoadingData ? "লোড হচ্ছে..." : dataSource}
+                    {/* Navigation/Header */}
+                    <nav className="w-full px-4 md:px-8 py-6 flex flex-col md:flex-row justify-between items-center gap-4 max-w-7xl mx-auto">
+                        <div className="flex items-center gap-2">
+                            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-200">
+                                <i data-lucide="shield-check" className="w-6 h-6"></i>
+                            </div>
+                            <span className="text-xl font-black tracking-tight text-slate-800">NBR <span className="text-emerald-600">AuditHub</span></span>
                         </div>
-                        <h1 className="text-6xl md:text-8xl font-black text-slate-950 mb-6 tracking-tighter leading-none">
-                            অডিট <span className="text-emerald-600">চেকার</span>
+                        <div className="flex items-center gap-3">
+                            <div className="hidden sm:flex items-center gap-2 bg-white/80 px-4 py-2 rounded-full border border-slate-200 shadow-sm">
+                                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">ডাটাবেস কানেক্টেড</span>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <header className="pt-12 pb-10 px-6 text-center max-w-4xl mx-auto">
+                        <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-slate-900 mb-6 tracking-tighter leading-[0.9]">
+                            সহজেই চেক করুন <br/> <span className="text-emerald-600">ট্যাক্স অডিট</span>
                         </h1>
-                        <p className="text-slate-500 text-lg md:text-xl font-medium max-w-2xl mx-auto leading-relaxed">
-                            ২০২৩-২৪ অর্থ-বছরের অডিট নির্বাচনের তালিকা অনুসন্ধান করুন।
+                        <p className="text-slate-500 text-base md:text-lg font-medium max-w-xl mx-auto leading-relaxed px-4">
+                            জাতীয় রাজস্ব বোর্ড (NBR) কর্তৃক ২০২৩-২৪ অর্থ-বছরের জন্য নির্বাচিত অডিট তালিকার ডিজিটাল ডাটাবেস।
                         </p>
                     </header>
 
-                    <main className="max-w-3xl mx-auto px-6 relative z-10">
-                        <div className="bg-white p-2 rounded-[2.5rem] shadow-2xl border border-slate-100 mb-10 flex flex-col md:flex-row items-center gap-2 transition-all focus-within:ring-4 focus-within:ring-emerald-50">
-                            <div className="flex-1 flex items-center w-full px-6">
-                                <div className="text-slate-300 mr-3">
-                                    <i data-lucide="hash" className="w-6 h-6"></i>
+                    <main className="max-w-4xl mx-auto px-6 relative z-10">
+                        {/* Search Section */}
+                        <div className="glass-effect p-2 md:p-3 rounded-[2rem] md:rounded-[3rem] shadow-2xl shadow-emerald-900/5 border border-white mb-12 flex flex-col md:flex-row items-center gap-2 transition-all focus-within:ring-8 focus-within:ring-emerald-500/5">
+                            <div className="flex-1 flex items-center w-full px-6 py-2">
+                                <div className="text-slate-400 mr-4">
+                                    <i data-lucide="search" className="w-6 h-6 md:w-8 md:h-8"></i>
                                 </div>
                                 <input 
                                     type="text" 
-                                    placeholder="১২ ডিজিটের টিআইএন দিন..."
-                                    className="w-full py-5 text-2xl outline-none font-mono font-black text-slate-800"
+                                    placeholder="আপনার ১২ ডিজিটের টিআইএন (TIN) লিখুন..."
+                                    className="w-full py-4 md:py-6 text-xl md:text-3xl outline-none font-mono font-black text-slate-800 bg-transparent placeholder:text-slate-300"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && performSearch()}
@@ -200,84 +209,171 @@
                             <button 
                                 onClick={performSearch}
                                 disabled={isLoadingData || isSearching}
-                                className="w-full md:w-auto bg-slate-950 hover:bg-emerald-600 text-white font-black px-12 py-5 rounded-[2rem] transition-all"
+                                className="w-full md:w-auto bg-slate-950 hover:bg-emerald-600 text-white font-black px-10 py-5 md:py-7 rounded-[1.5rem] md:rounded-[2.5rem] transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
                             >
-                                {isSearching ? "খোঁজা হচ্ছে..." : "সার্চ করুন"}
+                                {isSearching ? (
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                        <span>খোঁজা হচ্ছে...</span>
+                                    </div>
+                                ) : "অনুসন্ধান করুন"}
                             </button>
                         </div>
 
+                        {/* Error/Not Found Message */}
                         {error && (
-                            <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl text-center animate-in fade-in zoom-in-95">
-                                <p className="text-slate-500 font-bold text-xl leading-relaxed">{error}</p>
+                            <div className="bg-white/80 backdrop-blur-md p-10 md:p-16 rounded-[3rem] border border-slate-100 shadow-xl text-center animate-in fade-in zoom-in-95">
+                                <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                    <i data-lucide="check-circle" className="w-10 h-10"></i>
+                                </div>
+                                <p className="text-slate-800 font-black text-2xl mb-2">{error}</p>
+                                <p className="text-slate-500 font-medium">আপনার রিটার্ন কমপ্লায়েন্স বজায় রাখার জন্য ধন্যবাদ।</p>
                             </div>
                         )}
 
+                        {/* Result Display */}
                         {selectedResult && (
-                            <div className="bg-white rounded-[4rem] shadow-2xl overflow-hidden border border-red-50 animate-in zoom-in-95 duration-500">
-                                <div className="bg-gradient-to-br from-red-600 to-red-700 p-10 text-white flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <div className="bg-white/20 p-3 rounded-2xl">
-                                            <i data-lucide="alert-triangle" className="w-8 h-8"></i>
+                            <div className="bg-white rounded-[3rem] md:rounded-[4rem] shadow-2xl overflow-hidden border border-slate-100 animate-in slide-in-from-bottom-10 duration-700">
+                                <div className="bg-slate-950 p-8 md:p-12 text-white relative overflow-hidden">
+                                    {/* Decorative Pattern */}
+                                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+                                    
+                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
+                                        <div className="flex items-center gap-4">
+                                            <div className="bg-red-500 p-4 rounded-3xl animate-pulse">
+                                                <i data-lucide="alert-octagon" className="w-8 h-8 text-white"></i>
+                                            </div>
+                                            <div>
+                                                <h2 className="text-3xl md:text-4xl font-black tracking-tight">অডিট নির্বাচিত!</h2>
+                                                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">নির্বাচিত টিআইএন তালিকা ২০২৪</p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h2 className="text-3xl font-black tracking-tight">অডিট নির্বাচিত!</h2>
-                                            <p className="text-red-100 text-[10px] font-bold uppercase tracking-[0.2em] opacity-80 mt-1">Audit Selection 2023-24</p>
+                                        <div className="bg-white/10 px-6 py-4 rounded-2xl border border-white/10 backdrop-blur-sm">
+                                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">অডিট সিরিয়াল</span>
+                                            <p className="text-3xl font-mono font-black text-white leading-none">#{selectedResult.serial}</p>
                                         </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-4xl font-mono font-black leading-none">{selectedResult.serial}</p>
                                     </div>
                                 </div>
-                                <div className="p-14 space-y-12">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                                        <div>
-                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">TIN Number</span>
-                                            <p className="text-5xl font-mono font-black text-slate-900 tracking-tighter">{selectedResult.tin}</p>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Tax Zone</span>
-                                            <p className="text-2xl font-black text-slate-800 leading-tight">{selectedResult.zone}</p>
-                                        </div>
+
+                                <div className="p-8 md:p-16 grid grid-cols-1 md:grid-cols-2 gap-12">
+                                    <div className="space-y-1">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">TIN (Taxpayer Identification No)</span>
+                                        <p className="text-4xl md:text-6xl font-mono font-black text-slate-900 tracking-tighter">{selectedResult.tin}</p>
                                     </div>
-                                    <div className="bg-slate-50 p-10 rounded-[3rem] border border-slate-100 text-center">
-                                        <p className="text-slate-600 font-bold text-lg mb-4">
-                                            অডিট নোটিশের প্রস্তুতির জন্য এআই সহকারীর সাহায্য নিন।
-                                        </p>
-                                        <button 
-                                            onClick={() => setIsChatOpen(true)}
-                                            className="bg-emerald-600 text-white px-8 py-3 rounded-full font-black text-sm flex items-center gap-2 mx-auto hover:bg-emerald-700 transition-all shadow-lg"
-                                        >
-                                            <i data-lucide="sparkles" className="w-4 h-4"></i>
-                                            স্মার্ট এআই গাইডেন্স ✨
-                                        </button>
+                                    <div className="space-y-1">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Tax Office / Zone</span>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-2 h-10 bg-emerald-500 rounded-full"></div>
+                                            <p className="text-2xl md:text-3xl font-black text-slate-800 leading-tight">
+                                                {selectedResult.zone}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
+
+                                <div className="px-8 md:px-16 pb-16">
+                                    <div className="bg-slate-50 p-8 md:p-10 rounded-[2.5rem] border border-slate-100">
+                                        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                                            <div className="text-center md:text-left">
+                                                <h4 className="text-xl font-black text-slate-900 mb-2">এরপর আপনার করণীয় কি?</h4>
+                                                <p className="text-slate-500 text-sm font-medium leading-relaxed max-w-sm">
+                                                    অডিট নির্বাচিত হওয়া মানেই জরিমানা নয়। সঠিক নথিপত্র এবং পেশাদার পরামর্শের মাধ্যমে এটি সমাধান করা সম্ভব।
+                                                </p>
+                                            </div>
+                                            <button 
+                                                onClick={() => setIsChatOpen(true)}
+                                                className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-10 py-5 rounded-[1.5rem] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-emerald-600/20 transition-all active:scale-95"
+                                            >
+                                                <i data-lucide="sparkles" className="w-6 h-6"></i>
+                                                এআই সহকারী থেকে গাইডেন্স নিন
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Summary Stats Component */}
+                        {!selectedResult && !error && (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mt-12 animate-in fade-in slide-in-from-bottom-5 duration-1000">
+                                {[
+                                    { label: "মোট অডিট নির্বাচিত", value: stats.count.toLocaleString() + "+", icon: "users" },
+                                    { label: "অর্থ বছর", value: stats.date, icon: "calendar" },
+                                    { label: "তথ্য উৎস", value: "NBR ডিজিটাল ডাটা", icon: "database" }
+                                ].map((item, i) => (
+                                    <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col items-center text-center">
+                                        <div className="w-10 h-10 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center mb-3">
+                                            <i data-lucide={item.icon} className="w-5 h-5"></i>
+                                        </div>
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{item.label}</span>
+                                        <p className="text-2xl font-black text-slate-800 tracking-tight">{item.value}</p>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </main>
 
-                    {/* Chat Widget */}
-                    <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end transition-all duration-500 ${isChatOpen ? 'w-full max-w-md px-6' : 'w-16'}`}>
+                    {/* Footer Info Section */}
+                    <footer className="max-w-4xl mx-auto mt-20 px-6">
+                        <div className="border-t border-slate-200 pt-12 pb-20">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+                                <div>
+                                    <h5 className="text-slate-900 font-black mb-4 flex items-center gap-2">
+                                        <i data-lucide="info" className="w-5 h-5 text-emerald-500"></i>
+                                        জরুরি কিছু তথ্য
+                                    </h5>
+                                    <ul className="space-y-3 text-slate-500 text-sm font-medium">
+                                        <li className="flex gap-2"><span>•</span> অডিট নির্বাচিত হলে আপনার ট্যাক্স সার্কেল থেকে নোটিশ পাঠানো হবে।</li>
+                                        <li className="flex gap-2"><span>•</span> গত ৩ বছরের আয়-ব্যয়ের হিসাব ও ব্যাংক স্টেটমেন্ট গুছিয়ে রাখুন।</li>
+                                        <li className="flex gap-2"><span>•</span> প্রয়োজনে একজন অনুমোদিত ট্যাক্স কনসালট্যান্টের পরামর্শ নিন।</li>
+                                    </ul>
+                                </div>
+                                <div className="bg-emerald-50 p-8 rounded-[2rem] border border-emerald-100">
+                                    <p className="text-emerald-900 font-bold text-sm leading-relaxed">
+                                        এই টুলটি শুধুমাত্র তথ্যের জন্য। অফিসিয়াল নিশ্চিতকরণের জন্য আপনার সংশ্লিষ্ট কর অফিস বা এনবিআর ওয়েবসাইটের সাথে যোগাযোগ করুন।
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </footer>
+
+                    {/* Chat Widget Container */}
+                    <div className={`fixed bottom-6 right-6 z-[100] transition-all duration-500 ease-out ${isChatOpen ? 'w-[calc(100vw-3rem)] md:w-[420px]' : 'w-16 h-16'}`}>
                         {isChatOpen ? (
-                            <div className="bg-white w-full h-[500px] rounded-[2.5rem] shadow-2xl border border-slate-200 flex flex-col overflow-hidden mb-4 animate-in slide-in-from-bottom-10">
+                            <div className="bg-white w-full h-[550px] md:h-[600px] rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-200 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-right-10">
+                                {/* Chat Header */}
                                 <div className="bg-slate-950 p-6 text-white flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className="bg-emerald-500 p-2 rounded-xl">
-                                            <i data-lucide="bot" className="w-5 h-5 text-white"></i>
+                                        <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+                                            <i data-lucide="bot" className="w-6 h-6"></i>
                                         </div>
-                                        <h3 className="font-black text-lg">ট্যাক্স এআই সহকারী</h3>
+                                        <div>
+                                            <h3 className="font-black text-lg leading-none">ট্যাক্স এআই গাইড</h3>
+                                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Active & Helpful</span>
+                                        </div>
                                     </div>
-                                    <button onClick={() => setIsChatOpen(false)}>
+                                    <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
                                         <i data-lucide="x" className="w-6 h-6 text-slate-400"></i>
                                     </button>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-6 space-y-4 chat-scroll">
+
+                                {/* Messages */}
+                                <div className="flex-1 overflow-y-auto p-6 space-y-5 chat-scroll bg-slate-50/50">
+                                    {chatMessages.length === 0 && (
+                                        <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                                            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
+                                                <i data-lucide="messages-square" className="w-8 h-8 text-slate-300"></i>
+                                            </div>
+                                            <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mb-2">কোনো মেসেজ নেই</p>
+                                            <p className="text-slate-500 text-xs leading-relaxed font-medium">অডিট প্রক্রিয়া বা ট্যাক্স সংক্রান্ত যেকোনো প্রশ্ন আমাকে করতে পারেন।</p>
+                                        </div>
+                                    )}
                                     {chatMessages.map((msg, idx) => (
-                                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[85%] p-4 rounded-3xl text-sm font-medium leading-relaxed ${
+                                        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
+                                            <div className={`max-w-[85%] p-5 rounded-[2rem] text-sm md:text-base font-medium leading-relaxed shadow-sm ${
                                                 msg.role === 'user' 
                                                 ? 'bg-emerald-600 text-white rounded-tr-none' 
-                                                : 'bg-slate-100 text-slate-800 rounded-tl-none'
+                                                : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'
                                             }`}>
                                                 {msg.text}
                                             </div>
@@ -285,32 +381,32 @@
                                     ))}
                                     {isAiTyping && (
                                         <div className="flex justify-start">
-                                            <div className="bg-slate-100 p-4 rounded-3xl rounded-tl-none animate-pulse">
-                                                <div className="flex gap-1">
-                                                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full"></div>
-                                                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></div>
-                                                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full"></div>
-                                                </div>
+                                            <div className="bg-white border border-slate-100 p-5 rounded-[2rem] rounded-tl-none flex gap-1 items-center">
+                                                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce"></span>
+                                                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                                                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
                                             </div>
                                         </div>
                                     )}
                                     <div ref={chatEndRef}></div>
                                 </div>
-                                <div className="p-4 border-t border-slate-100">
-                                    <div className="flex items-center gap-2 bg-slate-50 rounded-2xl px-4 py-1">
+
+                                {/* Input */}
+                                <div className="p-5 bg-white border-t border-slate-100">
+                                    <div className="flex items-center gap-2 bg-slate-100 rounded-[1.5rem] px-5 py-1 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
                                         <input 
-                                            className="flex-1 bg-transparent border-none outline-none py-3 text-sm font-medium text-slate-700"
-                                            placeholder="প্রশ্নটি এখানে লিখুন..."
+                                            className="flex-1 bg-transparent border-none outline-none py-4 text-sm font-bold text-slate-700 placeholder:text-slate-400"
+                                            placeholder="আপনার প্রশ্নটি লিখুন..."
                                             value={userInput}
                                             onChange={(e) => setUserInput(e.target.value)}
                                             onKeyDown={(e) => e.key === 'Enter' && handleAiChat()}
                                         />
                                         <button 
                                             onClick={handleAiChat}
-                                            className="bg-slate-950 text-white p-2 rounded-xl hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                                            className="bg-slate-950 text-white p-3 rounded-xl hover:bg-emerald-600 transition-all active:scale-90 disabled:opacity-30"
                                             disabled={!userInput.trim() || isAiTyping}
                                         >
-                                            <i data-lucide="send" className="w-4 h-4"></i>
+                                            <i data-lucide="send" className="w-5 h-5"></i>
                                         </button>
                                     </div>
                                 </div>
@@ -318,18 +414,13 @@
                         ) : (
                             <button 
                                 onClick={() => setIsChatOpen(true)}
-                                className="w-16 h-16 bg-slate-950 rounded-full shadow-2xl flex items-center justify-center text-white hover:bg-emerald-600 transition-all hover:scale-110 active:scale-95"
+                                className="w-16 h-16 bg-slate-950 rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.3)] flex items-center justify-center text-white hover:bg-emerald-600 transition-all hover:scale-110 active:scale-95 group relative"
                             >
-                                <i data-lucide="message-square" className="w-8 h-8"></i>
+                                <i data-lucide="message-circle" className="w-8 h-8 group-hover:rotate-12 transition-transform"></i>
+                                <span className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 border-4 border-white rounded-full"></span>
                             </button>
                         )}
                     </div>
-
-                    <footer className="mt-24 text-center px-6 opacity-30">
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">
-                            Source: NBR Audit List 2023-24
-                        </p>
-                    </footer>
                 </div>
             );
         }

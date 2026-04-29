@@ -40,7 +40,6 @@
         import { getFirestore, doc, getDoc, setDoc, updateDoc, increment, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // Your Config
         const firebaseConfig = {
             apiKey: "AIzaSyACPKSjZoziLx221xbi9i3VNutmOsRzmEw",
             authDomain: "nbr-audit-checker.firebaseapp.com",
@@ -71,14 +70,13 @@
         window.firebaseDB = db;
         window.firebaseAuth = auth;
         window.appIdentifier = appId;
-        window.fbMethods = { doc, onSnapshot, signInAnonymously, onAuthStateChanged };
+        window.fbMethods = { doc, getDoc, onSnapshot, signInAnonymously, onAuthStateChanged };
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
         
         const GITHUB_DATA_URL = "https://raw.githubusercontent.com/amiarafat/nbr-audit/refs/heads/main/audit_selection_2023_24.json";
-        const AI_API_KEY = ""; // Provided at runtime
 
         function App() {
             const [auditMap, setAuditMap] = useState(null);
@@ -88,6 +86,7 @@
             const [error, setError] = useState(null);
             const [user, setUser] = useState(null);
             const [liveStats, setLiveStats] = useState({ visits: 0, searches: 0 });
+            const [aiKey, setAiKey] = useState("");
             
             const [isChatOpen, setIsChatOpen] = useState(false);
             const [chatMessages, setChatMessages] = useState([]);
@@ -95,6 +94,7 @@
             const [isAiTyping, setIsAiTyping] = useState(false);
             const chatEndRef = useRef(null);
 
+            // Firebase Auth and Analytics
             useEffect(() => {
                 const { firebaseAuth, fbMethods, trackAnalytics } = window;
                 if (!firebaseAuth) return;
@@ -109,14 +109,31 @@
                 return () => unsubscribe();
             }, []);
 
+            // Real-time Stats and AI Key Retrieval
             useEffect(() => {
                 if (!user || !window.firebaseDB) return;
                 const { firebaseDB, appIdentifier, fbMethods } = window;
+                
+                // Live Stats Listener
                 const statsRef = fbMethods.doc(firebaseDB, 'artifacts', appIdentifier, 'public', 'data', 'analytics', 'global_stats');
-                const unsubscribe = fbMethods.onSnapshot(statsRef, (doc) => doc.exists() && setLiveStats(doc.data()));
-                return () => unsubscribe();
+                const unsubStats = fbMethods.onSnapshot(statsRef, (doc) => doc.exists() && setLiveStats(doc.data()));
+
+                // Fetch AI Key from Firestore
+                const fetchAiKey = async () => {
+                    const keyDocRef = fbMethods.doc(firebaseDB, 'artifacts', appIdentifier, 'public', 'data', 'api_keys', 'gemini');
+                    try {
+                        const keySnap = await fbMethods.getDoc(keyDocRef);
+                        if (keySnap.exists()) {
+                            setAiKey(keySnap.data().key);
+                        }
+                    } catch (e) { console.error("Error fetching AI key:", e); }
+                };
+                fetchAiKey();
+
+                return () => unsubStats();
             }, [user]);
 
+            // Load Audit Data
             useEffect(() => {
                 fetch(GITHUB_DATA_URL)
                     .then(res => res.json())
@@ -150,13 +167,16 @@
             };
 
             const handleAiChat = async () => {
-                if (!userInput.trim()) return;
+                if (!userInput.trim() || !aiKey) {
+                    if (!aiKey) setChatMessages(prev => [...prev, { role: 'assistant', text: "দুঃখিত, এআই সার্ভিস কনফিগার করা নেই।" }]);
+                    return;
+                }
                 const msg = userInput;
                 setUserInput('');
                 setChatMessages(prev => [...prev, { role: 'user', text: msg }]);
                 setIsAiTyping(true);
                 try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${AI_API_KEY}`;
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${aiKey}`;
                     const res = await fetch(url, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -176,7 +196,6 @@
 
             return (
                 <div className="min-h-screen bg-slate-50 text-slate-900">
-                    {/* Top Announcement Bar */}
                     <div className="bg-slate-900 text-white py-2 px-6 text-[11px] font-bold tracking-widest flex justify-center items-center gap-4 uppercase">
                         <span className="opacity-70">Official Portal:</span>
                         <a href="https://nbr.gov.bd" target="_blank" className="text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1">
@@ -184,7 +203,6 @@
                         </a>
                     </div>
 
-                    {/* Nav */}
                     <nav className="sticky top-0 z-50 glass-effect border-b border-slate-200/60 px-6 py-4">
                         <div className="max-w-7xl mx-auto flex justify-between items-center">
                             <div className="flex items-center gap-2">
@@ -210,7 +228,6 @@
                     </header>
 
                     <main className="max-w-6xl mx-auto px-6 pb-24">
-                        {/* Search Section */}
                         <div className="max-w-3xl mx-auto mb-20 fade-in" style={{animationDelay: '0.1s'}}>
                             <div className="bg-white p-3 rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col md:flex-row items-center gap-2">
                                 <div className="flex-1 flex items-center w-full px-6 py-2">
@@ -231,7 +248,6 @@
                             {error && <div className="mt-4 bg-red-50 text-red-600 p-4 rounded-2xl text-center font-bold text-sm border border-red-100 animate-pulse">{error}</div>}
                         </div>
 
-                        {/* Search Result */}
                         {selectedResult && (
                             <div className="max-w-4xl mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 mb-20 fade-in">
                                 <div className="bg-red-600 p-10 text-white text-center relative overflow-hidden">
@@ -265,7 +281,6 @@
                             </div>
                         )}
 
-                        {/* Live Stats Row */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-20 fade-in" style={{animationDelay: '0.2s'}}>
                             {[
                                 { icon: 'users', label: 'মোট ভিজিটর', val: (liveStats.visits || 0).toLocaleString(), color: 'emerald' },
@@ -281,9 +296,7 @@
                             ))}
                         </div>
 
-                        {/* Detailed Content Cards - 3x2 Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-20 fade-in" style={{animationDelay: '0.3s'}}>
-                            {/* Card 1: Process */}
                             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
                                 <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="refresh-ccw" className="w-7 h-7"></i></div>
                                 <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">অডিট সিলেকশন প্রসেস</h3>
@@ -293,7 +306,6 @@
                                 </div>
                             </div>
 
-                            {/* Card 2: Documents */}
                             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
                                 <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="file-text" className="w-7 h-7"></i></div>
                                 <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">প্রয়োজনীয় নথিপত্র</h3>
@@ -307,7 +319,6 @@
                                 </ul>
                             </div>
 
-                            {/* Card 3: Tax Calculator Tips */}
                             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
                                 <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="calculator" className="w-7 h-7"></i></div>
                                 <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">ট্যাক্স সেভিং টিপস</h3>
@@ -315,7 +326,6 @@
                                 <button className="bg-slate-100 py-3 rounded-xl text-slate-700 font-black text-xs uppercase hover:bg-emerald-50 hover:text-emerald-700 transition-colors">রেয়াত ক্যালকুলেটর দেখুন</button>
                             </div>
 
-                            {/* Card 4: Deadlines */}
                             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
                                 <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="clock" className="w-7 h-7"></i></div>
                                 <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">সময়সীমা ও জরিমানা</h3>
@@ -323,7 +333,6 @@
                                 <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 text-[11px] font-bold text-amber-800 uppercase tracking-widest text-center">৩০শে নভেম্বর: ট্যাক্স ডে</div>
                             </div>
 
-                            {/* Card 5: Tax Zones info */}
                             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 card-hover flex flex-col h-full">
                                 <div className="w-14 h-14 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mb-6"><i data-lucide="map-pin" className="w-7 h-7"></i></div>
                                 <h3 className="text-2xl font-black mb-4 tracking-tight text-slate-800">আপনার কর অঞ্চল খুঁজুন</h3>
@@ -331,7 +340,6 @@
                                 <a href="https://etaxnbr.gov.bd/" target="_blank" className="flex items-center justify-center gap-2 text-sky-600 font-black text-xs uppercase">ই-ট্যাক্স পোর্টালে যান <i data-lucide="chevron-right" className="w-4 h-4"></i></a>
                             </div>
 
-                            {/* Card 6: Professional Help */}
                             <div className="bg-slate-900 p-10 rounded-[2.5rem] shadow-xl text-white card-hover flex flex-col h-full relative overflow-hidden">
                                 <div className="absolute -bottom-10 -right-10 opacity-10"><i data-lucide="users" className="w-40 h-40"></i></div>
                                 <h3 className="text-2xl font-black mb-4 tracking-tight relative z-10">পেশাদার সহায়তা নিন</h3>
@@ -340,7 +348,6 @@
                             </div>
                         </div>
 
-                        {/* Bottom Footer Section */}
                         <footer className="mt-12 text-center pt-12 border-t border-slate-200">
                             <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-4">স্বেচ্ছায় কর প্রদান করুন, দেশ গড়ায় অংশ নিন</p>
                             <div className="flex justify-center gap-6 opacity-30">
